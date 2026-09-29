@@ -42,17 +42,14 @@ def _ensure_parent_dir(path: Path) -> None:
 
 
 def _read_records_file(path: Path) -> tuple[bool, list[dict[str, Any]], str | None]:
-    """
-    Load records from JSON.
-    Missing / empty / corrupt → (True, [], error_or_None) so callers never crash.
-    ok is True when the app can continue; error explains soft failures.
-    """
     if not path.exists():
         return True, [], None
     try:
         raw = path.read_text(encoding="utf-8")
     except OSError as exc:
         return True, [], f"Could not read data file: {exc}"
+    except UnicodeDecodeError as exc:
+        return True, [], f"Corrupted data file (not valid UTF-8 text): {exc}"
 
     if raw.strip() == "":
         return True, [], None
