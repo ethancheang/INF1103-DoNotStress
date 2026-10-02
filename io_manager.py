@@ -1,13 +1,13 @@
-"""I/O Manager for DoNotStress — Student Academic & Wellbeing Risk CLI.
+"""Console input and output for the DoNotStress student risk application.
 
-This is the only application module allowed to call print() or input().
-Validators are pure: validate_X(raw) -> (ok, value_or_error) and never
-touch stdin/stdout, so they can be unit-tested in isolation.
-
-Other layers (ai_manager, logic_manager, data_manager, main) should call
-the getters, collect_student_record(), formatters, and print_* helpers
-here instead of talking to the console themselves.
+This procedural module uses functions, loops and dictionaries; no classes.
+Validators return (True, value) or (False, error_message) without console I/O.
+Getters collect valid input, formatters build text, and print helpers display it.
+Other application modules should use these functions for console interaction.
 """
+
+from math import isfinite
+
 
 VALID_STUDENT_ID_YEARS = ("23", "24", "25", "26")
 STUDENT_ID_EXAMPLE = "2605581"
@@ -60,88 +60,85 @@ PERCENT_KEYS = {
     "average_submission_rate",
 }
 
-_YES_VALUES = {"yes"}
-_NO_VALUES = {"no"}
-
-
 # ---------------------------------------------------------------------------
 # Internal helpers (pure)
 # ---------------------------------------------------------------------------
 
-def _as_text(raw) -> str:
+def _as_text(raw):
     """Normalize raw input to a stripped string. None becomes empty."""
     if raw is None:
         return ""
     return str(raw).strip()
 
 
-def _looks_like_int(text: str) -> bool:
-    """True when text is a base-10 integer (optional leading + or -)."""
-    if not text:
-        return False
-    if text[0] in "+-":
-        return len(text) > 1 and text[1:].isdigit()
-    return text.isdigit()
+def _looks_like_int(text):
+    """Check for digits 0-9, allowing one leading plus or minus sign."""
+    if text.startswith(("+", "-")):
+        text = text[1:]
+    return bool(text) and text.isascii() and text.isdigit()
 
 
-def _parse_int(raw) -> tuple[bool, int | str]:
+def _parse_int(raw):
+    """Return an integer, or an error if the input is not a whole number."""
     text = _as_text(raw)
     if not _looks_like_int(text):
         return False, "must be a whole number (integer)"
-    return True, int(text)
+    try:
+        return True, int(text)
+    except ValueError:
+        # Python may reject integer strings that contain too many digits.
+        return False, "contains too many digits"
 
 
-def _parse_float(raw) -> tuple[bool, float | str]:
+def _parse_float(raw):
+    """Return a finite decimal number, or a validation error message."""
     text = _as_text(raw)
-    if text == "":
-        return False, "must be a number"
-    lowered = text.lower()
-    if lowered in {"nan", "inf", "+inf", "-inf", "infinity", "+infinity", "-infinity"}:
-        return False, "must be a finite number"
     try:
         value = float(text)
     except ValueError:
         return False, "must be a number"
-    if value != value:  # NaN
-        return False, "must be a finite number"
-    if value == float("inf") or value == float("-inf"):
+    if not isfinite(value):
         return False, "must be a finite number"
     return True, value
 
 
-def _humanize_key(key: str) -> str:
+def _humanize_key(key):
+    """Convert an underscore-separated key into a readable title."""
     return str(key).replace("_", " ").title()
 
 
-def _format_bool(value: bool) -> str:
+def _format_bool(value):
+    """Convert a Boolean value into Yes or No for display."""
     return "Yes" if value else "No"
 
 
-def _format_field_value(key: str, value) -> str:
+def _format_field_value(key, value):
+    """Format a validated record value, including percentages and missing data."""
     if value is None:
-        return "(none)"
+        return "(missing)"
     if key == "free_text_concern":
         text = str(value).strip()
         return text if text else "(none)"
-    if key == "financial_stress" or type(value) is bool:
-        return _format_bool(bool(value))
+    if isinstance(value, bool):
+        return _format_bool(value)
     if key in PERCENT_KEYS:
         return f"{float(value):.1f}%"
-    if key in {"sleep_hours", "average_sleep_hours", "average_submission_rate"}:
+    if key in {"sleep_hours", "average_sleep_hours"}:
         return f"{float(value):.1f}"
-    if type(value) is float:
+    if isinstance(value, float):
         return f"{value:.1f}"
     return str(value)
 
 
-def _format_summary_value(key: str, value) -> str:
-    if type(value) is bool:
+def _format_summary_value(key, value):
+    """Format summary values, including lists and nested dictionaries."""
+    if isinstance(value, bool):
         return _format_bool(value)
-    if type(value) is list or type(value) is tuple:
+    if isinstance(value, (list, tuple)):
         if len(value) == 0:
             return "(none)"
         return ", ".join(str(item) for item in value)
-    if type(value) is dict:
+    if isinstance(value, dict):
         if len(value) == 0:
             return "(none)"
         inner = "; ".join(
@@ -154,7 +151,7 @@ def _format_summary_value(key: str, value) -> str:
             return f"{float(value):.1f}%"
         except (TypeError, ValueError):
             return str(value)
-    if type(value) is float:
+    if isinstance(value, float):
         return f"{value:.1f}"
     return str(value)
 
@@ -163,7 +160,7 @@ def _format_summary_value(key: str, value) -> str:
 # Validators — validate_X(raw) -> (ok, value_or_error)
 # ---------------------------------------------------------------------------
 
-def validate_student_id(raw) -> tuple[bool, str]:
+def validate_student_id(raw):
     """Require a 2-digit year in {23,24,25,26} followed by 5 digits."""
     text = _as_text(raw)
     if not text:
@@ -171,7 +168,11 @@ def validate_student_id(raw) -> tuple[bool, str]:
             "Student ID is required. Use a 2-digit year (23, 24, 25, or 26) "
             f"followed by 5 digits (e.g. {STUDENT_ID_EXAMPLE})."
         )
-    if not text.isdigit() or len(text) != 2 + STUDENT_ID_SERIAL_DIGITS:
+    if (
+        not text.isascii()
+        or not text.isdigit()
+        or len(text) != 2 + STUDENT_ID_SERIAL_DIGITS
+    ):
         return False, (
             "Student ID must be 7 digits: a 2-digit year (23, 24, 25, or 26) "
             f"followed by 5 digits (e.g. {STUDENT_ID_EXAMPLE})."
@@ -183,7 +184,7 @@ def validate_student_id(raw) -> tuple[bool, str]:
     return True, text
 
 
-def validate_sleep_hours(raw) -> tuple[bool, float | str]:
+def validate_sleep_hours(raw):
     """Require a float in [0.0, 24.0]."""
     ok, parsed = _parse_float(raw)
     if not ok:
@@ -196,7 +197,7 @@ def validate_sleep_hours(raw) -> tuple[bool, float | str]:
     return True, parsed
 
 
-def validate_stress_level(raw) -> tuple[bool, int | str]:
+def validate_stress_level(raw):
     """Require an integer in [1, 10]."""
     ok, parsed = _parse_int(raw)
     if not ok:
@@ -209,7 +210,7 @@ def validate_stress_level(raw) -> tuple[bool, int | str]:
     return True, parsed
 
 
-def validate_submission_rate(raw) -> tuple[bool, float | str]:
+def validate_submission_rate(raw):
     """Require a float in [0.0, 100.0]."""
     ok, parsed = _parse_float(raw)
     if not ok:
@@ -222,7 +223,7 @@ def validate_submission_rate(raw) -> tuple[bool, float | str]:
     return True, parsed
 
 
-def validate_cca_count(raw) -> tuple[bool, int | str]:
+def validate_cca_count(raw):
     """Require an integer >= 0."""
     ok, parsed = _parse_int(raw)
     if not ok:
@@ -232,17 +233,17 @@ def validate_cca_count(raw) -> tuple[bool, int | str]:
     return True, parsed
 
 
-def validate_financial_stress(raw) -> tuple[bool, bool | str]:
+def validate_financial_stress(raw):
     """Require yes/no only (case-insensitive). Returns a bool on success."""
     text = _as_text(raw).lower()
-    if text in _YES_VALUES:
+    if text == "yes":
         return True, True
-    if text in _NO_VALUES:
+    if text == "no":
         return True, False
     return False, "Financial stress must be 'yes' or 'no' (not y/n or true/false)."
 
 
-def validate_consecutive_absences(raw) -> tuple[bool, int | str]:
+def validate_consecutive_absences(raw):
     """Require an integer >= 0."""
     ok, parsed = _parse_int(raw)
     if not ok:
@@ -252,7 +253,7 @@ def validate_consecutive_absences(raw) -> tuple[bool, int | str]:
     return True, parsed
 
 
-def validate_free_text_concern(raw) -> tuple[bool, str]:
+def validate_free_text_concern(raw):
     """Optional free text. Blank or whitespace-only is stored as ''."""
     return True, _as_text(raw)
 
@@ -261,7 +262,7 @@ def validate_free_text_concern(raw) -> tuple[bool, str]:
 # Interactive getters — re-prompt until a validator accepts the value
 # ---------------------------------------------------------------------------
 
-def _prompt_until_valid(prompt: str, validator):
+def _prompt_until_valid(prompt, validator):
     """Read a line, validate, and re-prompt with the error until valid."""
     while True:
         raw = input(prompt)
@@ -271,63 +272,71 @@ def _prompt_until_valid(prompt: str, validator):
         print_error(result)
 
 
-def get_student_id() -> str:
+def get_student_id():
+    """Prompt until a valid student ID is entered; return it as a string."""
     return _prompt_until_valid(
         "Student ID (YYxxxxx, year 23-26, e.g. 2605581): ",
         validate_student_id,
     )
 
 
-def get_sleep_hours() -> float:
+def get_sleep_hours():
+    """Prompt for sleep hours from 0 to 24; return a float."""
     return _prompt_until_valid(
         "Sleep hours last night (0.0 to 24.0): ",
         validate_sleep_hours,
     )
 
 
-def get_stress_level() -> int:
+def get_stress_level():
+    """Prompt for a stress level from 1 to 10; return an integer."""
     return _prompt_until_valid(
         "Stress level (1 to 10): ",
         validate_stress_level,
     )
 
 
-def get_submission_rate() -> float:
+def get_submission_rate():
+    """Prompt for a submission percentage from 0 to 100; return a float."""
     return _prompt_until_valid(
         "Assignment submission rate (0.0 to 100.0): ",
         validate_submission_rate,
     )
 
 
-def get_cca_count() -> int:
+def get_cca_count():
+    """Prompt for a non-negative CCA count; return an integer."""
     return _prompt_until_valid(
         "Number of CCAs (0 or more): ",
         validate_cca_count,
     )
 
 
-def get_financial_stress() -> bool:
+def get_financial_stress():
+    """Prompt for yes or no; return True for yes and False for no."""
     return _prompt_until_valid(
         "Financial stress? (yes/no): ",
         validate_financial_stress,
     )
 
 
-def get_consecutive_absences() -> int:
+def get_consecutive_absences():
+    """Prompt for a non-negative absence count; return an integer."""
     return _prompt_until_valid(
         "Consecutive absences (0 or more): ",
         validate_consecutive_absences,
     )
 
 
-def get_free_text_concern() -> str:
+def get_free_text_concern():
+    """Prompt for an optional concern; return trimmed text or an empty string."""
     return _prompt_until_valid(
         "Free-text concern (optional, press Enter to skip): ",
         validate_free_text_concern,
     )
 
 
-def collect_student_record() -> dict:
+def collect_student_record():
     """Prompt for every student field and return a snake_case record dict."""
     print_message("Enter student academic and wellbeing details.")
     print_message("Invalid values will be rejected until a valid value is entered.")
@@ -347,7 +356,7 @@ def collect_student_record() -> dict:
 # Formatters — return strings; no print()
 # ---------------------------------------------------------------------------
 
-def format_student_record(record: dict) -> str:
+def format_student_record(record):
     """Render one student record as a labelled block."""
     if not record:
         return "Student Record\n--------------\nNo student data to display."
@@ -363,7 +372,7 @@ def format_student_record(record: dict) -> str:
     return "\n".join(lines)
 
 
-def format_cohort_list(records) -> str:
+def format_cohort_list(records):
     """Render a list of student records as a numbered cohort listing."""
     if records is None:
         records = []
@@ -377,11 +386,11 @@ def format_cohort_list(records) -> str:
     for index, record in enumerate(records, start=1):
         record = record or {}
         student_id = record.get("student_id", "(unknown)")
-        sleep = _format_field_value("sleep_hours", record.get("sleep_hours", 0.0))
+        sleep = _format_field_value("sleep_hours", record.get("sleep_hours"))
         stress = record.get("stress_level", "?")
-        submit = _format_field_value("submission_rate", record.get("submission_rate", 0.0))
+        submit = _format_field_value("submission_rate", record.get("submission_rate"))
         cca = record.get("cca_count", "?")
-        financial = _format_field_value("financial_stress", record.get("financial_stress", False))
+        financial = _format_field_value("financial_stress", record.get("financial_stress"))
         absences = record.get("consecutive_absences", "?")
         concern = _format_field_value("free_text_concern", record.get("free_text_concern", ""))
         lines.append(
@@ -392,7 +401,7 @@ def format_cohort_list(records) -> str:
     return "\n".join(lines)
 
 
-def format_summary_view(summary: dict) -> str:
+def format_summary_view(summary):
     """Render a cohort summary dict produced by another layer.
 
     Known keys get friendly labels; any extra snake_case keys are humanized.
@@ -405,16 +414,14 @@ def format_summary_view(summary: dict) -> str:
         lines.append("No summary data to display.")
         return "\n".join(lines)
 
-    rendered_keys = set()
     rows = []
 
     for key in SUMMARY_LABELS:
         if key in summary:
             rows.append((SUMMARY_LABELS[key], _format_summary_value(key, summary[key])))
-            rendered_keys.add(key)
 
     for key, value in summary.items():
-        if key in rendered_keys:
+        if key in SUMMARY_LABELS:
             continue
         rows.append((_humanize_key(key), _format_summary_value(key, value)))
 
@@ -428,27 +435,42 @@ def format_summary_view(summary: dict) -> str:
 # print_* helpers — the only console output API other layers should use
 # ---------------------------------------------------------------------------
 
-def print_message(message: str) -> None:
+def print_message(message):
+    """Display a general message in the console."""
     print(message)
 
 
-def print_error(message: str) -> None:
+def print_error(message):
+    """Display a validation error with a consistent Error prefix."""
     print(f"Error: {message}")
 
 
-def print_student_record(record: dict) -> None:
+def print_student_record(record):
+    """Format and display one student record."""
     print(format_student_record(record))
 
 
-def print_cohort_list(records) -> None:
+def print_cohort_list(records):
+    """Format and display the list of student records."""
     print(format_cohort_list(records))
 
 
-def print_summary_view(summary: dict) -> None:
+def print_summary_view(summary):
+    """Format and display the cohort summary."""
     print(format_summary_view(summary))
 
 
-if __name__ == "__main__":
-    demo_record = collect_student_record()
+def main():
+    """Run a one-student demonstration when this module is executed directly."""
+    try:
+        demo_record = collect_student_record()
+    except (KeyboardInterrupt, EOFError):
+        # End the standalone demo cleanly if input is cancelled or unavailable.
+        print_message("\nInput cancelled. No complete record was collected.")
+        return
     print_message("")
     print_student_record(demo_record)
+
+
+if __name__ == "__main__":
+    main()
